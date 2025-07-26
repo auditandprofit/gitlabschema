@@ -12,12 +12,13 @@ form `{type: [{field, type, fields?}]}`.
 
 Recursion depth can be expensive on large schemas. The parser therefore
 defaults to following fields only three levels deep. Use the `--depth` option to
-increase or decrease this limit.
+increase or decrease this limit. Passing `--stats` will print a summary instead
+of the full nested mapping.
 
 Usage:
 
 ```bash
-python3 parse_schema.py [--depth N] [schema.json]
+python3 parse_schema.py [--depth N] [--stats] [schema.json]
 ```
 
 Without an argument it defaults to `schema.json` in the repository root and a
