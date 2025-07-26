@@ -1,6 +1,12 @@
 import argparse
 import sys
+import tempfile
+import os
 from typing import Dict, List, Any, Set, Optional, Tuple
+
+from PIL import Image, ImageTk
+from tkinter import Tk, Canvas, BOTH, Button
+from graphviz import Digraph
 
 try:
     import orjson as _orjson  # type: ignore
@@ -169,6 +175,85 @@ def calculate_stats(nested: Dict[str, List[Dict[str, Any]]]) -> Dict[str, int]:
     return {"unique_paths": len(unique_paths), "unique_types": len(unique_types)}
 
 
+def _build_graph(nested: Dict[str, List[Dict[str, Any]]]) -> Digraph:
+    """Return Graphviz digraph for ``nested`` mapping."""
+    dot = Digraph()
+    dot.attr(rankdir="LR")
+    seen_nodes: Set[str] = set()
+
+    def walk(source: str, fields: List[Dict[str, Any]]):
+        if source not in seen_nodes:
+            dot.node(source)
+            seen_nodes.add(source)
+        for entry in fields:
+            target = entry.get("type", "")
+            label = entry.get("field", "")
+            if target not in seen_nodes:
+                dot.node(target)
+                seen_nodes.add(target)
+            dot.edge(source, target, label=label)
+            if entry.get("fields"):
+                walk(target, entry["fields"])
+
+    for root, root_fields in nested.items():
+        walk(root, root_fields)
+
+    return dot
+
+
+def _show_image(path: str) -> None:
+    """Display PNG ``path`` in a simple Tkinter viewer with zoom controls."""
+
+    original = Image.open(path)
+
+    root = Tk()
+    root.title("Schema Graph")
+
+    canvas = Canvas(root, highlightthickness=0)
+    canvas.pack(fill=BOTH, expand=True)
+
+    zoom = 1.0
+
+    def redraw() -> None:
+        nonlocal zoom
+        width = int(original.width * zoom)
+        height = int(original.height * zoom)
+        resized = original.resize((width, height), Image.LANCZOS)
+        photo = ImageTk.PhotoImage(resized)
+        canvas.delete("all")
+        canvas.config(scrollregion=(0, 0, width, height), width=width, height=height)
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        canvas.image = photo  # keep reference
+
+    def zoom_in(event=None) -> None:  # type: ignore[override]
+        nonlocal zoom
+        zoom *= 1.2
+        redraw()
+
+    def zoom_out(event=None) -> None:  # type: ignore[override]
+        nonlocal zoom
+        zoom /= 1.2
+        redraw()
+
+    Button(root, text="Zoom In", command=zoom_in).pack(side="left")
+    Button(root, text="Zoom Out", command=zoom_out).pack(side="left")
+
+    root.bind("+", zoom_in)
+    root.bind("-", zoom_out)
+
+    redraw()
+    root.mainloop()
+
+
+def visualize(nested: Dict[str, List[Dict[str, Any]]]) -> None:
+    """Render ``nested`` mapping and open GUI viewer."""
+    dot = _build_graph(nested)
+    with tempfile.TemporaryDirectory() as tmp:
+        outfile = os.path.join(tmp, "graph")
+        dot.render(outfile, format="png", cleanup=True)
+        _show_image(outfile + ".png")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Parse GraphQL schema")
     parser.add_argument("schema", nargs="?", default="schema.json")
@@ -183,11 +268,19 @@ def main() -> None:
         action="store_true",
         help="print statistics about unique paths and types",
     )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="visualize nested fields in an interactive graph",
+    )
     args = parser.parse_args()
 
     type_map = load_schema(args.schema)
     result = extract_nested(type_map, max_depth=args.depth)
-    if args.stats:
+    if args.gui:
+        visualize(result)
+        return
+    elif args.stats:
         output = calculate_stats(result)
     else:
         output = result

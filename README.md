@@ -18,8 +18,9 @@ of the full nested mapping.
 Usage:
 
 ```bash
-python3 parse_schema.py [--depth N] [--stats] [schema.json]
+python3 parse_schema.py [--depth N] [--stats] [--gui] [schema.json]
 ```
 
 Without an argument it defaults to `schema.json` in the repository root and a
-maximum depth of three.
+maximum depth of three. Passing `--gui` opens an interactive graph viewer that
+lets you zoom the schema diagram left-to-right.
