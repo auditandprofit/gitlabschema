@@ -1,5 +1,5 @@
 import sys
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Set
 
 try:
     import orjson as _orjson  # type: ignore
@@ -62,10 +62,74 @@ def extract_fields(type_map: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
     return result
 
 
+def build_edge_node_map(type_map: Dict[str, Any]) -> Dict[str, str]:
+    """Return mapping of Edge type name -> underlying node type name."""
+    edge_map: Dict[str, str] = {}
+    for name, t in type_map.items():
+        if not name.endswith("Edge"):
+            continue
+        fields = t.get("fields")
+        if not fields:
+            continue
+        for f in fields:
+            if f.get("name") == "node":
+                edge_map[name] = get_base_type(f.get("type", {}))
+                break
+    return edge_map
+
+
+def build_nested_fields(
+    type_name: str,
+    type_map: Dict[str, Any],
+    edge_map: Dict[str, str],
+    seen: Set[str],
+) -> List[Dict[str, Any]]:
+    """Recursively build nested fields following edges, avoiding cycles."""
+    if type_name in seen:
+        return []
+    seen.add(type_name)
+
+    t = type_map.get(type_name)
+    fields = []
+    if t and t.get("fields"):
+        for f in t["fields"]:
+            base = get_base_type(f.get("type", {}))
+            target = edge_map.get(base, base)
+            entry: Dict[str, Any] = {"field": f.get("name", ""), "type": target}
+            if target not in seen and type_map.get(target, {}).get("fields"):
+                entry["fields"] = build_nested_fields(target, type_map, edge_map, seen)
+            fields.append(entry)
+
+    seen.remove(type_name)
+    return fields
+
+
+def extract_nested(type_map: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    """Return recursive mapping of domain types following edges."""
+
+    def is_domain_type(name: str) -> bool:
+        if name.startswith("__"):
+            return False
+        if name.endswith("Connection") or name.endswith("Edge") or name.endswith("Payload"):
+            return False
+        return True
+
+    edge_map = build_edge_node_map(type_map)
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    for name, t in type_map.items():
+        if not is_domain_type(name):
+            continue
+        if t.get("kind") not in ("OBJECT", "INTERFACE"):
+            continue
+        result[name] = build_nested_fields(name, type_map, edge_map, set())
+
+    return result
+
+
 def main() -> None:
     path = sys.argv[1] if len(sys.argv) > 1 else "schema.json"
     type_map = load_schema(path)
-    result = extract_fields(type_map)
+    result = extract_nested(type_map)
     if _HAS_ORJSON:
         sys.stdout.buffer.write(_json.dumps(result, option=_orjson.OPT_INDENT_2))
     else:

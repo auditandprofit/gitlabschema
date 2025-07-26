@@ -4,12 +4,11 @@ This repository contains a GraphQL schema introspection JSON (`schema.json`).
 
 ## parse_schema.py
 
-`parse_schema.py` reads the introspection file and prints a simplified
-mapping of each domain type to its immediate fields. Introspection types,
-connection/edge types and mutation payloads are omitted. Each field is
-represented by its name and the base type name. The output is a JSON object
-of the form `{type: [{field, type}]}` which is significantly smaller and
-faster to generate than the previous recursive version.
+`parse_schema.py` reads the introspection file and prints a nested mapping of
+each domain type to its fields. Edge types are resolved to their underlying
+`node` type and the tree is followed recursively. Cycles are avoided by
+tracking visited types along the current path. The resulting JSON is of the
+form `{type: [{field, type, fields?}]}`.
 
 Usage:
 
