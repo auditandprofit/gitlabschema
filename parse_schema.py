@@ -31,17 +31,34 @@ def get_base_type(t: Dict[str, Any]) -> str:
 
 
 def extract_fields(type_map: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
-    """Return simplified mapping of type -> [{field, type}] (non-recursive)."""
+    """Return simplified mapping of type -> [{field, type}] for domain types."""
+
+    def is_domain_type(name: str) -> bool:
+        """Return True if ``name`` refers to a GitLab-defined domain type."""
+        if name.startswith("__"):
+            return False
+        if name.endswith("Connection") or name.endswith("Edge") or name.endswith("Payload"):
+            return False
+        return True
+
     result: Dict[str, List[Dict[str, str]]] = {}
     for name, t in type_map.items():
+        if not is_domain_type(name):
+            continue
+        if t.get("kind") not in ("OBJECT", "INTERFACE"):
+            continue
+
         fields = t.get("fields")
         if not fields:
             continue
+
         entries = []
         for f in fields:
             base = get_base_type(f.get("type", {}))
             entries.append({"field": f.get("name", ""), "type": base})
+
         result[name] = entries
+
     return result
 
 
