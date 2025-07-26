@@ -1,5 +1,6 @@
+import argparse
 import sys
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Set, Optional
 
 try:
     import orjson as _orjson  # type: ignore
@@ -83,8 +84,13 @@ def build_nested_fields(
     type_map: Dict[str, Any],
     edge_map: Dict[str, str],
     seen: Set[str],
+    *,
+    depth: int = 0,
+    max_depth: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Recursively build nested fields following edges, avoiding cycles."""
+    if max_depth is not None and depth >= max_depth:
+        return []
     if type_name in seen:
         return []
     seen.add(type_name)
@@ -96,15 +102,27 @@ def build_nested_fields(
             base = get_base_type(f.get("type", {}))
             target = edge_map.get(base, base)
             entry: Dict[str, Any] = {"field": f.get("name", ""), "type": target}
-            if target not in seen and type_map.get(target, {}).get("fields"):
-                entry["fields"] = build_nested_fields(target, type_map, edge_map, seen)
+            if (
+                target not in seen
+                and type_map.get(target, {}).get("fields")
+            ):
+                entry["fields"] = build_nested_fields(
+                    target,
+                    type_map,
+                    edge_map,
+                    seen,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                )
             fields.append(entry)
 
     seen.remove(type_name)
     return fields
 
 
-def extract_nested(type_map: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+def extract_nested(
+    type_map: Dict[str, Any], *, max_depth: Optional[int] = None
+) -> Dict[str, List[Dict[str, Any]]]:
     """Return recursive mapping of domain types following edges."""
 
     def is_domain_type(name: str) -> bool:
@@ -121,15 +139,26 @@ def extract_nested(type_map: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
             continue
         if t.get("kind") not in ("OBJECT", "INTERFACE"):
             continue
-        result[name] = build_nested_fields(name, type_map, edge_map, set())
+        result[name] = build_nested_fields(
+            name, type_map, edge_map, set(), depth=0, max_depth=max_depth
+        )
 
     return result
 
 
 def main() -> None:
-    path = sys.argv[1] if len(sys.argv) > 1 else "schema.json"
-    type_map = load_schema(path)
-    result = extract_nested(type_map)
+    parser = argparse.ArgumentParser(description="Parse GraphQL schema")
+    parser.add_argument("schema", nargs="?", default="schema.json")
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=3,
+        help="limit recursion depth when building nested fields",
+    )
+    args = parser.parse_args()
+
+    type_map = load_schema(args.schema)
+    result = extract_nested(type_map, max_depth=args.depth)
     if _HAS_ORJSON:
         sys.stdout.buffer.write(_json.dumps(result, option=_orjson.OPT_INDENT_2))
     else:

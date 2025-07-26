@@ -10,10 +10,15 @@ each domain type to its fields. Edge types are resolved to their underlying
 tracking visited types along the current path. The resulting JSON is of the
 form `{type: [{field, type, fields?}]}`.
 
+Recursion depth can be expensive on large schemas. The parser therefore
+defaults to following fields only three levels deep. Use the `--depth` option to
+increase or decrease this limit.
+
 Usage:
 
 ```bash
-python3 parse_schema.py [schema.json]
+python3 parse_schema.py [--depth N] [schema.json]
 ```
 
-Without an argument it defaults to `schema.json` in the repository root.
+Without an argument it defaults to `schema.json` in the repository root and a
+maximum depth of three.
