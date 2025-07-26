@@ -1,6 +1,6 @@
 import argparse
 import sys
-from typing import Dict, List, Any, Set, Optional
+from typing import Dict, List, Any, Set, Optional, Tuple
 
 try:
     import orjson as _orjson  # type: ignore
@@ -146,6 +146,29 @@ def extract_nested(
     return result
 
 
+def calculate_stats(nested: Dict[str, List[Dict[str, Any]]]) -> Dict[str, int]:
+    """Return statistics about the nested mapping."""
+
+    unique_paths: Set[Tuple[str, ...]] = set()
+    unique_types: Set[str] = set()
+
+    def walk(current_type: str, fields: List[Dict[str, Any]], path: Tuple[str, ...]):
+        unique_types.add(current_type)
+        for entry in fields:
+            field_name = entry.get("field", "")
+            target = entry.get("type", "")
+            new_path = path + (field_name,)
+            unique_paths.add(new_path)
+            unique_types.add(target)
+            if entry.get("fields"):
+                walk(target, entry["fields"], new_path)
+
+    for root, root_fields in nested.items():
+        walk(root, root_fields, (root,))
+
+    return {"unique_paths": len(unique_paths), "unique_types": len(unique_types)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Parse GraphQL schema")
     parser.add_argument("schema", nargs="?", default="schema.json")
@@ -155,14 +178,24 @@ def main() -> None:
         default=3,
         help="limit recursion depth when building nested fields",
     )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="print statistics about unique paths and types",
+    )
     args = parser.parse_args()
 
     type_map = load_schema(args.schema)
     result = extract_nested(type_map, max_depth=args.depth)
-    if _HAS_ORJSON:
-        sys.stdout.buffer.write(_json.dumps(result, option=_orjson.OPT_INDENT_2))
+    if args.stats:
+        output = calculate_stats(result)
     else:
-        _json.dump(result, sys.stdout, indent=2)
+        output = result
+
+    if _HAS_ORJSON:
+        sys.stdout.buffer.write(_json.dumps(output, option=_orjson.OPT_INDENT_2))
+    else:
+        _json.dump(output, sys.stdout, indent=2)
 
 
 if __name__ == "__main__":
